@@ -1,0 +1,26 @@
+[Unit]
+Description=Step Code Feishu support bot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/developer/services/stepcode-support-bot
+ExecStart=/home/developer/.local/bin/pnpm exec tsx --tsconfig tsconfig.json apps/support-bot/src/main.ts run /home/developer/.config/stepcode-support-bot/config.json
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=120
+UMask=0077
+NoNewPrivileges=true
+Environment=PATH=/home/developer/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+Environment=NODE_ENV=production
+Environment=NODE_NO_WARNINGS=1
+Environment=LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1
+Environment=LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
+Environment=LARK_CLI_NO_PROXY_WARN=1
+
+[Install]
+WantedBy=default.target

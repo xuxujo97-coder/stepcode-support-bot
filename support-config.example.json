@@ -1,0 +1,11 @@
+{
+	"tenantId": "replace-with-your-feishu-tenant-key",
+	"allowedUsers": ["ou_replace_with_private_chat_owner"],
+	"allowedChats": ["oc_replace_with_support_group"],
+	"botOpenId": "ou_replace_with_bot_open_id",
+	"stateDir": "/home/developer/.local/state/stepcode-support-bot",
+	"repositoryDir": "/home/developer/services/stepcode-support-bot",
+	"apiKeyFile": "/home/developer/.config/stepcode-support-bot/model-key",
+	"dailyRequests": 100,
+	"dashboardBaseUrl": "https://stepcliobserserver-dashboard.stepfun-inc.com"
+}
