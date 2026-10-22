@@ -30,6 +30,7 @@ export interface LarkResourceClient {
 export class LarkCliClient implements LarkClient, LarkUserClient, LarkResourceClient {
 	private static readonly BASE_COMMANDS = [
 		"+record-batch-create",
+		"+record-batch-update",
 		"+record-list",
 		"+record-get",
 		"+record-upload-attachment",

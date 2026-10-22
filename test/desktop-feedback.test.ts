@@ -47,7 +47,11 @@ function rowOf(f: { calls: { command: string; args: string[] }[] }): Record<stri
 test("group reports map onto the desktop table through the operator user identity", async () => {
 	const f = fixture([{ record_id_list: ["rec-new"] }]);
 	try {
-		assert.deepEqual(await f.adapter.register(INPUT), { recordId: "rec-new", attached: 0, status: "未处理" });
+		const result = await f.adapter.register(INPUT);
+		assert.equal(result.recordId, "rec-new");
+		assert.equal(result.attached, 0);
+		assert.equal(result.status, "未处理");
+		assert.match(result.note, /桌面端｜chat=oc_group｜thread=om_root｜message=om_1/);
 		assert.equal(f.calls[0].command, "+record-batch-create");
 		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--base-token") + 1], "WEqObQt9GaG4PisMdcFcmFcfnfc");
 		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--table-id") + 1], "tbl72m5Wwm2al9Sv");
@@ -326,6 +330,57 @@ test("a verb separated from the mention by sentence punctuation assigns but keep
 		assert.equal(rowOf(f).fldL0R4T1J, "做开发时白屏，@龙永深 看下日志后修复");
 	} finally {
 		f.store.close();
+	}
+});
+
+test("active reports are read by column names and skip completed, merged or empty rows", async () => {
+	const f = fixture([
+		{
+			record_id_list: ["rec-a", "rec-b", "rec-c", "rec-d"],
+			fields: ["功能描述", "处理状态"],
+			data: [
+				["设置页白屏", ["处理中"]],
+				["无法登录", ["已完成"]],
+				["又白屏了", ["重复"]],
+				[null, ["未处理"]],
+			],
+		},
+	]);
+	try {
+		assert.deepEqual(await f.adapter.listActiveReports("rec-a"), []);
+		const second = fixture([
+			{ record_id_list: ["rec-a", "rec-e"], fields: ["功能描述", "处理状态"], data: [["白屏", ["未处理"]], ["又白屏", ["处理中"]]] },
+		]);
+		try {
+			assert.deepEqual(await second.adapter.listActiveReports("rec-e"), [
+				{ recordId: "rec-a", description: "白屏" },
+			]);
+		} finally {
+			second.store.close();
+		}
+	} finally {
+		f.store.close();
+	}
+});
+
+test("flagSuspectedDuplicate appends to the note and validates its input", async () => {
+	const f = fixture([{ record_id_list: ["recnew"] }]);
+	try {
+		await f.adapter.flagSuspectedDuplicate("recnew", "桌面端｜message=om_1｜疑似与 rec-a 重复");
+		const payload = JSON.parse(f.calls[0].args[f.calls[0].args.indexOf("--json") + 1]);
+		assert.deepEqual(payload, {
+			update_records: [{ record_id: "recnew", fields: { fld9GvNswG: "桌面端｜message=om_1｜疑似与 rec-a 重复" } }],
+		});
+	} finally {
+		f.store.close();
+	}
+	for (const bad of ["not-rec", "bad-record-id", ""]) {
+		const f = fixture([]);
+		try {
+			await assert.rejects(f.adapter.flagSuspectedDuplicate(bad, "x"));
+		} finally {
+			f.store.close();
+		}
 	}
 });
 

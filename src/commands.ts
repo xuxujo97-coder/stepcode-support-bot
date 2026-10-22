@@ -182,6 +182,7 @@ export interface CommandActions {
 		attached: number | null;
 		status: string;
 		assigned?: { id: string; name: string };
+		suspectedDuplicate?: { recordId: string; reason: string };
 	}>;
 	/** Pull the feedback session bundle from the diagnostics dashboard and produce a preliminary diagnosis. */
 	diagnose?(feedbackId: string): Promise<string>;
@@ -213,7 +214,7 @@ export async function handleSupportCommand(
 			return actions.diagnose ? await actions.diagnose(command.feedbackId) : "诊断功能当前未启用。";
 		case "desktop": {
 			if (!actions.registerDesktopFeedback) return "桌面端反馈功能当前未启用。";
-			const { recordId, attached, status, assigned } = await actions.registerDesktopFeedback({
+			const { recordId, attached, status, assigned, suspectedDuplicate } = await actions.registerDesktopFeedback({
 				conversationKey,
 				messageId,
 				description: command.description,
@@ -230,7 +231,10 @@ export async function handleSupportCommand(
 				status !== "未处理"
 					? `\n状态：${status}${assigned ? `｜Dev 负责人：${assigned.name}` : "｜Dev 负责人未识别，请在表格手动指派"}`
 					: "";
-			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}${assignmentNote}`;
+			const duplicateNote = suspectedDuplicate
+				? `\n疑似与已有问题重复${suspectedDuplicate.reason ? `（${suspectedDuplicate.reason}）` : ""}：\n${desktopRecordUrl(suspectedDuplicate.recordId)}\n确认同题后请在表格归并：父记录指向该主记录、状态置「重复」。`
+				: "";
+			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}${assignmentNote}${duplicateNote}`;
 		}
 		case "new":
 			await actions.resetContext(context.memoryKey);

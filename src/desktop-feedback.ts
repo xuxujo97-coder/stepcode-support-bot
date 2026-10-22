@@ -65,6 +65,8 @@ export interface DesktopFeedbackResult {
 	recordId: string;
 	attached: number | null;
 	status: string;
+	/** The note written to the record, so callers can append follow-up markers. */
+	note: string;
 	assigned?: { id: string; name: string };
 }
 
@@ -119,6 +121,11 @@ export class DesktopFeedbackAdapter {
 					.replace(/([，,])\s*[，,]+/gu, "$1")
 					.replace(/\s{2,}/gu, " ")
 					.trim();
+			const noteText = `桌面端｜chat=${input.origin.chatId}${
+				input.origin.threadId ? `｜thread=${input.origin.threadId}` : ""
+			}｜message=${input.messageId}${
+				note && !assigned ? "｜文末标注了处理状态但未识别到成员，请在表格手动指派 Dev 负责人" : ""
+			}`;
 			const fields: Record<string, string | string[]> = {
 				[FIELDS.description]: description
 					.replace(RESOURCE_MARKER, " ")
@@ -126,11 +133,7 @@ export class DesktopFeedbackAdapter {
 					.trim(),
 				[FIELDS.source]: [input.origin.chatType === "group" ? "Step Code 群" : "其他"],
 				[FIELDS.reporter]: [input.origin.userId],
-				[FIELDS.note]: `桌面端｜chat=${input.origin.chatId}${
-					input.origin.threadId ? `｜thread=${input.origin.threadId}` : ""
-				}｜message=${input.messageId}${
-					note && !assigned ? "｜文末标注了处理状态但未识别到成员，请在表格手动指派 Dev 负责人" : ""
-				}`,
+				[FIELDS.note]: noteText,
 				[FIELDS.status]: [status],
 				[FIELDS.time]: new Date().toISOString(),
 			};
@@ -152,8 +155,67 @@ export class DesktopFeedbackAdapter {
 			this.store.rememberFeedbackOwner(ids[0], input.conversationKey);
 			// The record exists; syncing its screenshots is best-effort and reported to the reporter.
 			const attached = await this.attachMessageResources(ids[0], input.messageId);
-			return { recordId: ids[0], attached, status, ...(assigned ? { assigned } : {}) };
+			return {
+				recordId: ids[0],
+				attached,
+				status,
+				note: noteText,
+				...(assigned ? { assigned } : {}),
+			};
 		});
+	}
+
+	/**
+	 * Active reports for duplicate detection: not yet completed and not already merged as duplicates.
+	 * Reads at most the first page (200 records); descriptions are capped by the caller.
+	 */
+	async listActiveReports(excludeRecordId?: string): Promise<{ recordId: string; description: string }[]> {
+		const value = (await this.client.callAsUser("+record-list", [
+			"--base-token",
+			DESKTOP_BASE,
+			"--table-id",
+			DESKTOP_TABLE,
+			"--limit",
+			"200",
+		])) as { record_id_list?: unknown; fields?: unknown; data?: unknown } | null;
+		const ids = Array.isArray(value?.record_id_list) ? value?.record_id_list : [];
+		const names = Array.isArray(value?.fields) ? value?.fields : [];
+		const rows = Array.isArray(value?.data) ? value?.data : [];
+		// record-list reports column NAMES, not field IDs.
+		const descriptionIndex = names.indexOf("功能描述");
+		const statusIndex = names.indexOf("处理状态");
+		const result: { recordId: string; description: string }[] = [];
+		for (let index = 0; index < ids.length; index++) {
+			const id = ids[index];
+			const row = rows[index];
+			if (typeof id !== "string" || !Array.isArray(row) || id === excludeRecordId) continue;
+			const description = row[descriptionIndex];
+			const status = row[statusIndex];
+			if (typeof description !== "string" || !description.trim()) continue;
+			if (Array.isArray(status) && (status.includes("已完成") || status.includes("重复"))) continue;
+			result.push({ recordId: id, description });
+		}
+		return result;
+	}
+
+	/** Appends a suspected-duplicate marker to the new record's note; never merges or rewrites. */
+	async flagSuspectedDuplicate(recordId: string, note: string): Promise<void> {
+		if (!/^rec[A-Za-z0-9]+$/u.test(recordId) || !note || note.length > 400) {
+			throw new Error("Invalid duplicate flag");
+		}
+		const result = confirmWrite(
+			await this.client.callAsUser("+record-batch-update", [
+				"--base-token",
+				DESKTOP_BASE,
+				"--table-id",
+				DESKTOP_TABLE,
+				"--json",
+				JSON.stringify({ update_records: [{ record_id: recordId, fields: { [FIELDS.note]: note } }] }),
+			]),
+		);
+		if (!Array.isArray(result.record_id_list) || !result.record_id_list.includes(recordId)) {
+			throw new Error("Duplicate flag was not applied");
+		}
 	}
 
 	/** Returns the number of uploaded resources, null when nothing could be synced. */

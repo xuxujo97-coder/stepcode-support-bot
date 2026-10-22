@@ -159,6 +159,21 @@ test("desktop reply reports attachment sync failures without hiding the record l
 	assert.doesNotMatch(reply, /状态：/);
 });
 
+test("desktop reply surfaces a suspected duplicate without auto-merging", async () => {
+	const f = fixture();
+	f.actions.registerDesktopFeedback = async () => ({
+		recordId: "rec123",
+		attached: 0,
+		status: "未处理",
+		suspectedDuplicate: { recordId: "recOld", reason: "同为设置页白屏" },
+	});
+	const reply = (await handleSupportCommand("/desktop 设置页打开白屏", f.context, f.actions)) ?? "";
+	assert.match(reply, /疑似与已有问题重复（同为设置页白屏）/);
+	assert.match(reply, /record=recOld/);
+	assert.match(reply, /归并/);
+	assert.match(reply, /状态置「重复」/);
+});
+
 test("desktop without wiring reports the feature as unavailable", async () => {
 	const f = fixture();
 	assert.match((await handleSupportCommand("/desktop 设置页打不开", f.context, f.actions)) ?? "", /未启用/);

@@ -91,7 +91,25 @@ async function main(): Promise<void> {
 			status: async () =>
 				`服务正在处理消息；知识快照 ${knowledge.snapshot}。保留最近相关问题用于追问（30 分钟；群话题内共享，私聊仅本人），重启后清空；Feedback ID 空值需人工补齐。模型与反馈 API 健康以实际请求结果为准。`,
 			registerFeedback: (input) => feedback.registerFeedback(input),
-			registerDesktopFeedback: (input) => desktopFeedback.register(input),
+			registerDesktopFeedback: async (input) => {
+				const result = await desktopFeedback.register(input);
+				// The record exists; the duplicate hint is best-effort and must never fail the delivery.
+				try {
+					const active = await desktopFeedback.listActiveReports(result.recordId);
+					const match = await answerer.detectDuplicateReport(input.description, active);
+					if (match) {
+						const existing = active.find((item) => item.recordId === match.recordId);
+						const marker = `｜疑似与 ${match.recordId} 重复：${existing?.description.slice(0, 30) ?? ""}${
+							match.reason ? `（${match.reason}）` : ""
+						}｜PM 确认后归并`;
+						await desktopFeedback.flagSuspectedDuplicate(result.recordId, result.note + marker);
+						return { ...result, suspectedDuplicate: match };
+					}
+				} catch {
+					// No hint beats a failed reply: the record is already safely in the table.
+				}
+				return result;
+			},
 			diagnose: (feedbackId) => diagnostics.diagnose(feedbackId),
 		});
 		const controller = new AbortController();

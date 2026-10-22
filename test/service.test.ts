@@ -617,3 +617,28 @@ test("diagnose command runs the diagnostics action with the working indicator an
 		assert.deepEqual(store.listPending(), []);
 	} finally { store.close(); }
 });
+
+test("duplicate detection is strict and degrades to no hint", async () => {
+	const store = new SupportStateStore(":memory:");
+	let output = '{"duplicate":true,"record_id":"rec1","reason":"同为设置页白屏"}';
+	const existing = [{ recordId: "rec1", description: "设置页白屏" }, { recordId: "rec2", description: "无法登录" }];
+	let calls = 0;
+	const answerer = new SupportAnswerer(async () => {
+		calls++;
+		return output;
+	}, new SupportKnowledge(root), store, 10);
+	try {
+		assert.deepEqual(await answerer.detectDuplicateReport("设置页打开白屏", existing), {
+			recordId: "rec1",
+			reason: "同为设置页白屏",
+		});
+		output = '{"duplicate":true,"record_id":"rec-other","reason":"x"}';
+		assert.equal(await answerer.detectDuplicateReport("设置页打开白屏", existing), undefined);
+		output = '{"duplicate":false,"record_id":"","reason":""}';
+		assert.equal(await answerer.detectDuplicateReport("设置页打开白屏", existing), undefined);
+		assert.equal(await answerer.detectDuplicateReport("x", []), undefined);
+		assert.equal(calls, 3);
+	} finally {
+		store.close();
+	}
+});
