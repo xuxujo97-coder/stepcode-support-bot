@@ -32,11 +32,13 @@ const FIELDS = {
 const RESOURCE_MARKER = /!\[Image\]\([^)]*\)|\[图片\]/gu;
 
 /**
- * A trailing assignment note such as "@龙永深（ZouR-Ma）处理中" assigns the Dev owner and the
- * status; a status word without a resolvable mention only sets the status.
+ * An assignment note such as "@龙永深（ZouR-Ma）处理中" anywhere in the message assigns the Dev
+ * owner and the status. The status word must not run into another letter or digit, so words like
+ * 处理中断 or 处理中文 never trigger; a status word without a resolvable mention only sets the
+ * status. Optional wrapping parentheses are stripped together with the note.
  */
-const ASSIGNMENT_NOTE = /(处理中|已处理)\s*$/u;
-const ASSIGNMENT_STRIP = /@.{1,100}?\s*(?:处理中|已处理)\s*$/u;
+const ASSIGNMENT_STATUS = /(处理中|已处理)(?![\p{L}\p{N}])/u;
+const ASSIGNMENT_STRIP = /[（(]?\s*@.{1,100}?\s*(?:处理中|已处理)(?![\p{L}\p{N}])\s*[）)]?/gu;
 
 export function desktopRecordUrl(recordId: string): string {
 	return `https://wvixbzgc0u7.feishu.cn/base/${DESKTOP_BASE}?table=${DESKTOP_TABLE}&view=${DESKTOP_VIEW}&record=${recordId}`;
@@ -99,11 +101,16 @@ export class DesktopFeedbackAdapter {
 			) {
 				throw new Error("Invalid desktop feedback origin");
 			}
-			const note = ASSIGNMENT_NOTE.exec(input.description);
+			const note = ASSIGNMENT_STATUS.exec(input.description);
 			const status = note ? (note[1] === "已处理" ? "已完成" : "处理中") : "未处理";
 			const assigned = note && input.mentions.length > 0 ? input.mentions[0] : undefined;
 			let description = input.description;
-			if (assigned) description = description.replace(ASSIGNMENT_STRIP, "").trimEnd();
+			if (assigned)
+				description = description
+					.replace(ASSIGNMENT_STRIP, " ")
+					.replace(/([，,])\s*[，,]+/gu, "$1")
+					.replace(/\s{2,}/gu, " ")
+					.trim();
 			const fields: Record<string, string | string[]> = {
 				[FIELDS.description]: description
 					.replace(RESOURCE_MARKER, " ")

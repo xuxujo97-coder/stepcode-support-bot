@@ -1,0 +1,7 @@
+node_modules/
+lark-im-resources/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.DS_Store

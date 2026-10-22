@@ -212,6 +212,54 @@ test("已处理 maps to 已完成 and mid-text 处理 words never flip the statu
 	}
 });
 
+test("assignments anywhere in the message are recognized and stripped", async () => {
+	for (const [description, expected] of [
+		["@龙永深（ZouR-Ma）处理中 做开发的时候会出现 exec 控制面板", "做开发的时候会出现 exec 控制面板"],
+		["做开发的时候会出现 exec 控制面板（@龙永深 处理中）", "做开发的时候会出现 exec 控制面板"],
+		["做开发的时候，@龙永深 处理中，会出现 exec 控制面板", "做开发的时候，会出现 exec 控制面板"],
+	] as [string, string][]) {
+		const f = fixture([{ record_id_list: ["rec-new"] }]);
+		try {
+			const result = await f.adapter.register({
+				...INPUT,
+				description,
+				mentions: [{ id: "ou_long", name: "龙永深" }],
+			});
+			assert.equal(result.status, "处理中");
+			assert.deepEqual(result.assigned, { id: "ou_long", name: "龙永深" });
+			const row = rowOf(f);
+			assert.deepEqual(row.fldKAu8CpU, ["ou_long"]);
+			assert.equal(row.fldL0R4T1J, expected);
+		} finally {
+			f.store.close();
+		}
+	}
+});
+
+test("status words inside longer words never trigger an assignment", async () => {
+	for (const description of [
+		"桌面端无法处理中断的请求",
+		"处理中文文件时桌面端乱码",
+		"和 @龙永深 一起处理中断任务时桌面端会崩溃",
+	]) {
+		const f = fixture([{ record_id_list: ["rec-new"] }]);
+		try {
+			const result = await f.adapter.register({
+				...INPUT,
+				description,
+				mentions: description.includes("@") ? [{ id: "ou_long", name: "龙永深" }] : [],
+			});
+			assert.equal(result.status, "未处理");
+			assert.equal(result.assigned, undefined);
+			const row = rowOf(f);
+			assert.deepEqual(row.fldgN635Un, ["未处理"]);
+			assert.equal(row.fldKAu8CpU, undefined);
+		} finally {
+			f.store.close();
+		}
+	}
+});
+
 test("record link points at the desktop view with the record id", () => {
 	assert.equal(
 		desktopRecordUrl("rec1"),
