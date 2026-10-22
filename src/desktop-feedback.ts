@@ -32,13 +32,16 @@ const FIELDS = {
 const RESOURCE_MARKER = /!\[Image\]\([^)]*\)|\[图片\]/gu;
 
 /**
- * An assignment note such as "@龙永深（ZouR-Ma）处理中" anywhere in the message assigns the Dev
- * owner and the status. The status word must not run into another letter or digit, so words like
- * 处理中断 or 处理中文 never trigger; a status word without a resolvable mention only sets the
- * status. Optional wrapping parentheses are stripped together with the note.
+ * An assignment note such as "@龙永深（ZouR-Ma）处理中" or "@周旭 跟进" anywhere in the message
+ * assigns the Dev owner and the status. Follow-up verbs (处理中/跟进/修复中/…) map to 处理中,
+ * completed verbs (已处理/已修复/已完成) to 已完成. The verb must not run into another letter or
+ * digit, so words like 处理中断 or 处理中文 never trigger; a verb without a resolvable mention
+ * only sets the status. Optional wrapping parentheses are stripped together with the note.
  */
-const ASSIGNMENT_STATUS = /(处理中|已处理)(?![\p{L}\p{N}])/u;
-const ASSIGNMENT_STRIP = /[（(]?\s*@.{1,100}?\s*(?:处理中|已处理)(?![\p{L}\p{N}])\s*[）)]?/gu;
+const ASSIGNMENT_VERB = "处理中|跟进中|修复中|开发中|跟进|已处理|已修复|已完成";
+const ASSIGNMENT_STATUS = new RegExp(`(${ASSIGNMENT_VERB})(?![\\p{L}\\p{N}])`, "u");
+const ASSIGNMENT_STRIP = new RegExp(`[（(]?\\s*@.{1,100}?\\s*(?:${ASSIGNMENT_VERB})(?![\\p{L}\\p{N}])\\s*[）)]?`, "gu");
+const COMPLETED_VERBS = new Set(["已处理", "已修复", "已完成"]);
 
 export function desktopRecordUrl(recordId: string): string {
 	return `https://wvixbzgc0u7.feishu.cn/base/${DESKTOP_BASE}?table=${DESKTOP_TABLE}&view=${DESKTOP_VIEW}&record=${recordId}`;
@@ -102,7 +105,7 @@ export class DesktopFeedbackAdapter {
 				throw new Error("Invalid desktop feedback origin");
 			}
 			const note = ASSIGNMENT_STATUS.exec(input.description);
-			const status = note ? (note[1] === "已处理" ? "已完成" : "处理中") : "未处理";
+			const status = note ? (COMPLETED_VERBS.has(note[1] ?? "") ? "已完成" : "处理中") : "未处理";
 			const assigned = note && input.mentions.length > 0 ? input.mentions[0] : undefined;
 			let description = input.description;
 			if (assigned)

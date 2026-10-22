@@ -260,6 +260,32 @@ test("status words inside longer words never trigger an assignment", async () =>
 	}
 });
 
+test("follow-up verbs such as 跟进 also assign the Dev owner", async () => {
+	for (const [description, status] of [
+		["分组功能前端优化 @周旭 跟进", "处理中"],
+		["分组功能前端优化（@周旭 跟进中）", "处理中"],
+		["分组功能前端优化 @周旭 修复中", "处理中"],
+		["分组功能前端优化 @周旭 已修复", "已完成"],
+	] as [string, string][]) {
+		const f = fixture([{ record_id_list: ["rec-new"] }]);
+		try {
+			const result = await f.adapter.register({
+				...INPUT,
+				description,
+				mentions: [{ id: "ou_zhou", name: "周旭" }],
+			});
+			assert.equal(result.status, status);
+			assert.deepEqual(result.assigned, { id: "ou_zhou", name: "周旭" });
+			const row = rowOf(f);
+			assert.deepEqual(row.fldKAu8CpU, ["ou_zhou"]);
+			assert.deepEqual(row.fldgN635Un, [status]);
+			assert.equal(row.fldL0R4T1J, "分组功能前端优化");
+		} finally {
+			f.store.close();
+		}
+	}
+});
+
 test("record link points at the desktop view with the record id", () => {
 	assert.equal(
 		desktopRecordUrl("rec1"),
