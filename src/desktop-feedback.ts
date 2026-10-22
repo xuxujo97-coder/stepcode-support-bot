@@ -33,15 +33,20 @@ const RESOURCE_MARKER = /!\[Image\]\([^)]*\)|\[图片\]/gu;
 
 /**
  * An assignment note such as "@龙永深（ZouR-Ma）处理中" or "@周旭 跟进" anywhere in the message
- * assigns the Dev owner and the status. Follow-up verbs (处理中/跟进/修复中/…) map to 处理中,
- * completed verbs (已处理/已修复/已完成) to 已完成. The verb must not run into another letter or
- * digit, so words like 处理中断 or 处理中文 never trigger; a verb without a resolvable mention
- * only sets the status. Optional wrapping parentheses are stripped together with the note.
+ * assigns the Dev owner and the status. Follow-up verbs (处理中/跟进/修复/排查/…) map to 处理中,
+ * completed verbs (已处理/已修复/已完成/已解决) to 已完成. The verb must not run into another
+ * letter or digit, so words like 处理中断 or 处理中文 never trigger; a verb without a resolvable
+ * mention only sets the status. The note is stripped only when the verb sits close behind the
+ * mention without sentence punctuation in between.
  */
-const ASSIGNMENT_VERB = "处理中|跟进中|修复中|开发中|跟进|已处理|已修复|已完成";
+const ASSIGNMENT_VERB = "已处理|已修复|已完成|已解决|处理中|跟进中|修复中|开发中|排查中|跟进|处理|修复|排查|排期";
 const ASSIGNMENT_STATUS = new RegExp(`(${ASSIGNMENT_VERB})(?![\\p{L}\\p{N}])`, "u");
-const ASSIGNMENT_STRIP = new RegExp(`[（(]?\\s*@.{1,100}?\\s*(?:${ASSIGNMENT_VERB})(?![\\p{L}\\p{N}])\\s*[）)]?`, "gu");
-const COMPLETED_VERBS = new Set(["已处理", "已修复", "已完成"]);
+// Strips only a compact note: @<name with optional （…） alias> immediately followed by the verb.
+const ASSIGNMENT_STRIP = new RegExp(
+	`[（(]?\\s*@[\\p{L}\\p{N}_\\-]{1,30}(?:（[^）]{0,30}）|\\([^)]{0,30}\\))?\\s*(?:${ASSIGNMENT_VERB})(?![\\p{L}\\p{N}])\\s*[）)]?`,
+	"gu",
+);
+const COMPLETED_VERBS = new Set(["已处理", "已修复", "已完成", "已解决"]);
 
 export function desktopRecordUrl(recordId: string): string {
 	return `https://wvixbzgc0u7.feishu.cn/base/${DESKTOP_BASE}?table=${DESKTOP_TABLE}&view=${DESKTOP_VIEW}&record=${recordId}`;
