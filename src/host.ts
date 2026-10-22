@@ -15,6 +15,8 @@ export interface SupportMessage {
 	chatId: string;
 	/** Group thread root message; group threads share follow-up context among participants. */
 	threadId?: string;
+	/** Other people @mentioned in a group message, never the bot itself. */
+	mentions?: { id: string; name: string }[];
 	messageId: string;
 	text: string;
 }
@@ -104,6 +106,7 @@ export class SupportHost {
 					chatId: message.chatId,
 					...(message.threadId ? { threadId: message.threadId } : {}),
 				},
+				mentions: message.mentions ?? [],
 				messageId: message.messageId,
 				state,
 			};

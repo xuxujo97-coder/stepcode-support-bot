@@ -31,6 +31,7 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 	if (typeof event.content !== "string" || event.content.length > 8000) throw new Error("Invalid event text");
 	let text = event.content;
 	let threadId: string | undefined;
+	let otherMentions: { id: string; name: string }[] = [];
 	if (event.chat_type === "group") {
 		const mentions = Array.isArray(event.mentions) ? event.mentions : [];
 		const botMentions = mentions.filter(
@@ -45,6 +46,20 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 					text = text.replaceAll(token.startsWith("@") ? token : `@${token}`, " ");
 			}
 		}
+		// Other people @mentioned in the message (e.g. "@someone 处理中") stay addressable by open ID.
+		otherMentions = mentions
+			.filter(
+				(mention): mention is Record<string, unknown> =>
+					!!mention &&
+					typeof mention === "object" &&
+					typeof (mention as Record<string, unknown>).id === "string" &&
+					/^ou_[A-Za-z0-9_-]+$/u.test((mention as Record<string, unknown>).id as string) &&
+					(mention as Record<string, unknown>).id !== botOpenId,
+			)
+			.map((mention) => ({
+				id: mention.id as string,
+				name: typeof mention.name === "string" ? mention.name.slice(0, 100) : "",
+			}));
 		// A thread is identified by its root message: the first @ starts it, later replies carry root_id.
 		const root =
 			typeof event.root_id === "string" && MESSAGE_ID.test(event.root_id) ? event.root_id : event.message_id;
@@ -61,6 +76,7 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 		userId: String(event.sender_id),
 		chatId: String(event.chat_id),
 		...(threadId ? { threadId } : {}),
+		...(otherMentions.length ? { mentions: otherMentions } : {}),
 		messageId: String(event.message_id),
 		text,
 	};

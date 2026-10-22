@@ -18,6 +18,7 @@ function fixture(state: CommandState = {}) {
 		conversationKey: "tenant:user:chat",
 		memoryKey: "memory:thread",
 		origin: { chatType: "p2p", userId: "ou_user", chatId: "oc_chat" },
+		mentions: [],
 		messageId: "message-1",
 		state,
 	};
@@ -127,12 +128,12 @@ test("desktop command parses, stays read-only when bare, and appears in help", (
 	assert.match(COMMAND_HELP, /\/desktop <问题描述>：/);
 });
 
-test("desktop registration passes origin through and replies with the record link", async () => {
+test("desktop registration passes origin and mentions through and replies with the record link", async () => {
 	const f = fixture();
 	const seen: Parameters<NonNullable<CommandActions["registerDesktopFeedback"]>>[0][] = [];
 	f.actions.registerDesktopFeedback = async (input) => {
 		seen.push(input);
-		return { recordId: "rec123", attached: 2 };
+		return { recordId: "rec123", attached: 2, status: "处理中", assigned: { id: "ou_long", name: "龙永深（ZouR-Ma）" } };
 	};
 	const reply = (await handleSupportCommand("/desktop 设置页打不开", f.context, f.actions)) ?? "";
 	assert.deepEqual(seen, [{
@@ -140,19 +141,22 @@ test("desktop registration passes origin through and replies with the record lin
 		messageId: "message-1",
 		description: "设置页打不开",
 		origin: { chatType: "p2p", userId: "ou_user", chatId: "oc_chat" },
+		mentions: [],
 	}]);
 	assert.match(reply, /已记录桌面端问题/);
 	assert.match(reply, /record=rec123/);
 	assert.match(reply, /已附 2 个图片\/文件/);
+	assert.match(reply, /状态：处理中｜Dev 负责人：龙永深（ZouR-Ma）/);
 	assert.equal(f.saved.length, 0);
 });
 
 test("desktop reply reports attachment sync failures without hiding the record link", async () => {
 	const f = fixture();
-	f.actions.registerDesktopFeedback = async () => ({ recordId: "rec123", attached: null });
+	f.actions.registerDesktopFeedback = async () => ({ recordId: "rec123", attached: null, status: "未处理" });
 	const reply = (await handleSupportCommand("/desktop 设置页打不开", f.context, f.actions)) ?? "";
 	assert.match(reply, /未能自动附加/);
 	assert.match(reply, /record=rec123/);
+	assert.doesNotMatch(reply, /状态：/);
 });
 
 test("desktop without wiring reports the feature as unavailable", async () => {

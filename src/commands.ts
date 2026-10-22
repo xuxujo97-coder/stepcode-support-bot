@@ -153,6 +153,8 @@ export interface CommandContext {
 	memoryKey: string;
 	/** Host-generated delivery origin of the triggering message, never supplied by the model. */
 	origin: { chatType: "p2p" | "group"; userId: string; chatId: string; threadId?: string };
+	/** Other people @mentioned in the triggering message, never the bot itself. */
+	mentions: { id: string; name: string }[];
 	messageId: string;
 	state: CommandState;
 }
@@ -174,7 +176,13 @@ export interface CommandActions {
 		messageId: string;
 		description: string;
 		origin: { chatType: "p2p" | "group"; userId: string; chatId: string; threadId?: string };
-	}): Promise<{ recordId: string; attached: number | null }>;
+		mentions: { id: string; name: string }[];
+	}): Promise<{
+		recordId: string;
+		attached: number | null;
+		status: string;
+		assigned?: { id: string; name: string };
+	}>;
 	/** Pull the feedback session bundle from the diagnostics dashboard and produce a preliminary diagnosis. */
 	diagnose?(feedbackId: string): Promise<string>;
 }
@@ -205,11 +213,12 @@ export async function handleSupportCommand(
 			return actions.diagnose ? await actions.diagnose(command.feedbackId) : "诊断功能当前未启用。";
 		case "desktop": {
 			if (!actions.registerDesktopFeedback) return "桌面端反馈功能当前未启用。";
-			const { recordId, attached } = await actions.registerDesktopFeedback({
+			const { recordId, attached, status, assigned } = await actions.registerDesktopFeedback({
 				conversationKey,
 				messageId,
 				description: command.description,
 				origin: context.origin,
+				mentions: context.mentions,
 			});
 			const attachmentNote =
 				attached === null
@@ -217,7 +226,11 @@ export async function handleSupportCommand(
 					: attached > 0
 						? `\n已附 ${attached} 个图片/文件。`
 						: "";
-			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}`;
+			const assignmentNote =
+				status !== "未处理"
+					? `\n状态：${status}${assigned ? `｜Dev 负责人：${assigned.name}` : "｜Dev 负责人未识别，请在表格手动指派"}`
+					: "";
+			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}${assignmentNote}`;
 		}
 		case "new":
 			await actions.resetContext(context.memoryKey);

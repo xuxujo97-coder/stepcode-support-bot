@@ -9,6 +9,7 @@ const INPUT = {
 	messageId: "om_1",
 	description: "设置页打不开，点了没反应",
 	origin: { chatType: "group" as const, userId: "ou_sender", chatId: "oc_group", threadId: "om_root" },
+	mentions: [] as { id: string; name: string }[],
 };
 
 function fixture(responses: unknown[], resources: MessageResource[] | Error = []) {
@@ -46,7 +47,7 @@ function rowOf(f: { calls: { command: string; args: string[] }[] }): Record<stri
 test("group reports map onto the desktop table through the operator user identity", async () => {
 	const f = fixture([{ record_id_list: ["rec-new"] }]);
 	try {
-		assert.deepEqual(await f.adapter.register(INPUT), { recordId: "rec-new", attached: 0 });
+		assert.deepEqual(await f.adapter.register(INPUT), { recordId: "rec-new", attached: 0, status: "未处理" });
 		assert.equal(f.calls[0].command, "+record-batch-create");
 		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--base-token") + 1], "WEqObQt9GaG4PisMdcFcmFcfnfc");
 		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--table-id") + 1], "tbl72m5Wwm2al9Sv");
@@ -150,6 +151,64 @@ test("invalid input and ignored fields never establish ownership", async () => {
 		} finally {
 			f.store.close();
 		}
+	}
+});
+
+test("a trailing @mention assignment names the Dev owner, sets the status and cleans the description", async () => {
+	const f = fixture([{ record_id_list: ["rec-new"] }]);
+	try {
+		const result = await f.adapter.register({
+			...INPUT,
+			description: "做开发的时候会出现 exec 控制面板 @龙永深（ZouR-Ma）处理中",
+			mentions: [{ id: "ou_long", name: "龙永深（ZouR-Ma）" }],
+		});
+		assert.equal(result.status, "处理中");
+		assert.deepEqual(result.assigned, { id: "ou_long", name: "龙永深（ZouR-Ma）" });
+		const row = rowOf(f);
+		assert.equal(row.fldL0R4T1J, "做开发的时候会出现 exec 控制面板");
+		assert.deepEqual(row.fldKAu8CpU, ["ou_long"]);
+		assert.deepEqual(row.fldgN635Un, ["处理中"]);
+		assert.doesNotMatch(row.fld9GvNswG, /手动指派/);
+	} finally {
+		f.store.close();
+	}
+});
+
+test("an assignment without a resolvable mention only sets the status", async () => {
+	const f = fixture([{ record_id_list: ["rec-new"] }]);
+	try {
+		const result = await f.adapter.register({ ...INPUT, description: "桌面端白屏 @龙永深 处理中" });
+		assert.equal(result.status, "处理中");
+		assert.equal(result.assigned, undefined);
+		const row = rowOf(f);
+		assert.equal(row.fldL0R4T1J, "桌面端白屏 @龙永深 处理中");
+		assert.deepEqual(row.fldgN635Un, ["处理中"]);
+		assert.match(row.fld9GvNswG, /手动指派 Dev 负责人/);
+	} finally {
+		f.store.close();
+	}
+});
+
+test("已处理 maps to 已完成 and mid-text 处理 words never flip the status", async () => {
+	const done = fixture([{ record_id_list: ["rec-a"] }]);
+	try {
+		const result = await done.adapter.register({
+			...INPUT,
+			description: "底部入口不好找 @徐运放 已处理",
+			mentions: [{ id: "ou_xu", name: "徐运放" }],
+		});
+		assert.equal(result.status, "已完成");
+		assert.deepEqual(rowOf(done).fldgN635Un, ["已完成"]);
+	} finally {
+		done.store.close();
+	}
+	const casual = fixture([{ record_id_list: ["rec-b"] }]);
+	try {
+		const result = await casual.adapter.register({ ...INPUT, description: "处理大文件时桌面端会崩溃" });
+		assert.equal(result.status, "未处理");
+		assert.deepEqual(rowOf(casual).fldgN635Un, ["未处理"]);
+	} finally {
+		casual.store.close();
 	}
 });
 

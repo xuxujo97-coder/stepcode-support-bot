@@ -18,6 +18,8 @@ const FIELDS = {
 	source: "fldfm4RNk7",
 	/** 反馈人员 */
 	reporter: "fld28TIJH7",
+	/** Dev 负责人 */
+	devOwner: "fldKAu8CpU",
 	/** 备注 */
 	note: "fld9GvNswG",
 	/** 处理状态 */
@@ -29,6 +31,13 @@ const FIELDS = {
 /** The CLI renders embedded resources as inline markers; the binaries land in the attachment cell. */
 const RESOURCE_MARKER = /!\[Image\]\([^)]*\)|\[图片\]/gu;
 
+/**
+ * A trailing assignment note such as "@龙永深（ZouR-Ma）处理中" assigns the Dev owner and the
+ * status; a status word without a resolvable mention only sets the status.
+ */
+const ASSIGNMENT_NOTE = /(处理中|已处理)\s*$/u;
+const ASSIGNMENT_STRIP = /@.{1,100}?\s*(?:处理中|已处理)\s*$/u;
+
 export function desktopRecordUrl(recordId: string): string {
 	return `https://wvixbzgc0u7.feishu.cn/base/${DESKTOP_BASE}?table=${DESKTOP_TABLE}&view=${DESKTOP_VIEW}&record=${recordId}`;
 }
@@ -38,12 +47,15 @@ export interface DesktopFeedbackInput {
 	messageId: string;
 	description: string;
 	origin: { chatType: "p2p" | "group"; userId: string; chatId: string; threadId?: string };
+	mentions: { id: string; name: string }[];
 }
 
 /** null means the record exists but its attachments could not be synced from the message. */
 export interface DesktopFeedbackResult {
 	recordId: string;
 	attached: number | null;
+	status: string;
+	assigned?: { id: string; name: string };
 }
 
 export class DesktopFeedbackAdapter {
@@ -81,12 +93,19 @@ export class DesktopFeedbackAdapter {
 			if (
 				(input.origin.chatType !== "p2p" && input.origin.chatType !== "group") ||
 				!/^ou_[A-Za-z0-9_-]+$/u.test(input.origin.userId) ||
-				!/^oc_[A-Za-z0-9_-]+$/u.test(input.origin.chatId)
+				!/^oc_[A-Za-z0-9_-]+$/u.test(input.origin.chatId) ||
+				!Array.isArray(input.mentions) ||
+				input.mentions.some((mention) => !/^ou_[A-Za-z0-9_-]+$/u.test(mention?.id ?? ""))
 			) {
 				throw new Error("Invalid desktop feedback origin");
 			}
+			const note = ASSIGNMENT_NOTE.exec(input.description);
+			const status = note ? (note[1] === "已处理" ? "已完成" : "处理中") : "未处理";
+			const assigned = note && input.mentions.length > 0 ? input.mentions[0] : undefined;
+			let description = input.description;
+			if (assigned) description = description.replace(ASSIGNMENT_STRIP, "").trimEnd();
 			const fields: Record<string, string | string[]> = {
-				[FIELDS.description]: input.description
+				[FIELDS.description]: description
 					.replace(RESOURCE_MARKER, " ")
 					.replace(/\s{2,}/gu, " ")
 					.trim(),
@@ -94,10 +113,13 @@ export class DesktopFeedbackAdapter {
 				[FIELDS.reporter]: [input.origin.userId],
 				[FIELDS.note]: `桌面端｜chat=${input.origin.chatId}${
 					input.origin.threadId ? `｜thread=${input.origin.threadId}` : ""
-				}｜message=${input.messageId}`,
-				[FIELDS.status]: ["未处理"],
+				}｜message=${input.messageId}${
+					note && !assigned ? "｜文末标注了处理状态但未识别到成员，请在表格手动指派 Dev 负责人" : ""
+				}`,
+				[FIELDS.status]: [status],
 				[FIELDS.time]: new Date().toISOString(),
 			};
+			if (assigned) fields[FIELDS.devOwner] = [assigned.id];
 			const result = confirmWrite(
 				await this.client.callAsUser("+record-batch-create", [
 					"--base-token",
@@ -115,7 +137,7 @@ export class DesktopFeedbackAdapter {
 			this.store.rememberFeedbackOwner(ids[0], input.conversationKey);
 			// The record exists; syncing its screenshots is best-effort and reported to the reporter.
 			const attached = await this.attachMessageResources(ids[0], input.messageId);
-			return { recordId: ids[0], attached };
+			return { recordId: ids[0], attached, status, ...(assigned ? { assigned } : {}) };
 		});
 	}
 
