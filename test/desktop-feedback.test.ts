@@ -53,8 +53,8 @@ test("group reports map onto the desktop table through the operator user identit
 		assert.equal(result.status, "未处理");
 		assert.match(result.note, /桌面端｜chat=oc_group｜thread=om_root｜message=om_1/);
 		assert.equal(f.calls[0].command, "+record-batch-create");
-		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--base-token") + 1], "WEqObQt9GaG4PisMdcFcmFcfnfc");
-		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--table-id") + 1], "tbl72m5Wwm2al9Sv");
+		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--base-token") + 1], "AHFBbTHaZagfwmsOkYxcte5Znvh");
+		assert.equal(f.calls[0].args[f.calls[0].args.indexOf("--table-id") + 1], "tblRYcDV2jNh53iT");
 		const row = rowOf(f);
 		assert.equal(row.fldL0R4T1J, "设置页打不开，点了没反应");
 		assert.deepEqual(row.fldfm4RNk7, ["Step Code 群"]);
@@ -387,6 +387,6 @@ test("flagSuspectedDuplicate appends to the note and validates its input", async
 test("record link points at the desktop view with the record id", () => {
 	assert.equal(
 		desktopRecordUrl("rec1"),
-		"https://wvixbzgc0u7.feishu.cn/base/WEqObQt9GaG4PisMdcFcmFcfnfc?table=tbl72m5Wwm2al9Sv&view=vewaYKrloK&record=rec1",
+		"https://wvixbzgc0u7.feishu.cn/base/AHFBbTHaZagfwmsOkYxcte5Znvh?table=tblRYcDV2jNh53iT&view=vewaYKrloK&record=rec1",
 	);
 });

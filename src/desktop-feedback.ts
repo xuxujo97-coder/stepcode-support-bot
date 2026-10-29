@@ -3,8 +3,8 @@ import { confirmWrite } from "./feedback.ts";
 import type { LarkResourceClient, LarkUserClient } from "./lark-client.ts";
 import type { SupportStateStore } from "./state-store.ts";
 
-const DESKTOP_BASE = "WEqObQt9GaG4PisMdcFcmFcfnfc";
-const DESKTOP_TABLE = "tbl72m5Wwm2al9Sv";
+const DESKTOP_BASE = "AHFBbTHaZagfwmsOkYxcte5Znvh";
+const DESKTOP_TABLE = "tblRYcDV2jNh53iT";
 const DESKTOP_VIEW = "vewaYKrloK";
 
 // Field IDs of the desktop feedback table. They are NOT interchangeable with the main feedback
