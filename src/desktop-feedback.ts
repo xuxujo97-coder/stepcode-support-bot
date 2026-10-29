@@ -1,4 +1,4 @@
-import { unlink } from "node:fs/promises";
+import { attachMessageResources, stripResourceMarkers } from "./attachments.ts";
 import { confirmWrite } from "./feedback.ts";
 import type { LarkResourceClient, LarkUserClient } from "./lark-client.ts";
 import type { SupportStateStore } from "./state-store.ts";
@@ -27,9 +27,6 @@ const FIELDS = {
 	/** 附件 */
 	attachment: "附件",
 } as const;
-
-/** The CLI renders embedded resources as inline markers; the binaries land in the attachment cell. */
-const RESOURCE_MARKER = /!\[Image\]\([^)]*\)|\[图片\]/gu;
 
 /**
  * An assignment note such as "@龙永深（ZouR-Ma）处理中" or "@周旭 跟进" anywhere in the message
@@ -127,10 +124,7 @@ export class DesktopFeedbackAdapter {
 				note && !assigned ? "｜文末标注了处理状态但未识别到成员，请在表格手动指派 Dev 负责人" : ""
 			}`;
 			const fields: Record<string, string | string[]> = {
-				[FIELDS.description]: description
-					.replace(RESOURCE_MARKER, " ")
-					.replace(/\s{2,}/gu, " ")
-					.trim(),
+				[FIELDS.description]: stripResourceMarkers(description),
 				[FIELDS.source]: [input.origin.chatType === "group" ? "Step Code 群" : "其他"],
 				[FIELDS.reporter]: [input.origin.userId],
 				[FIELDS.note]: noteText,
@@ -154,7 +148,13 @@ export class DesktopFeedbackAdapter {
 			}
 			this.store.rememberFeedbackOwner(ids[0], input.conversationKey);
 			// The record exists; syncing its screenshots is best-effort and reported to the reporter.
-			const attached = await this.attachMessageResources(ids[0], input.messageId);
+			const attached = await attachMessageResources(this.client, {
+				base: DESKTOP_BASE,
+				table: DESKTOP_TABLE,
+				recordId: ids[0],
+				fieldId: FIELDS.attachment,
+				messageId: input.messageId,
+			});
 			return {
 				recordId: ids[0],
 				attached,
@@ -216,34 +216,5 @@ export class DesktopFeedbackAdapter {
 		if (!Array.isArray(result.record_id_list) || !result.record_id_list.includes(recordId)) {
 			throw new Error("Duplicate flag was not applied");
 		}
-	}
-
-	/** Returns the number of uploaded resources, null when nothing could be synced. */
-	private async attachMessageResources(recordId: string, messageId: string): Promise<number | null> {
-		let resources;
-		try {
-			resources = await this.client.fetchMessageResources(messageId);
-		} catch {
-			return null;
-		}
-		if (resources.length === 0) return 0;
-		try {
-			await this.client.callAsUser("+record-upload-attachment", [
-				"--base-token",
-				DESKTOP_BASE,
-				"--table-id",
-				DESKTOP_TABLE,
-				"--record-id",
-				recordId,
-				"--field-id",
-				FIELDS.attachment,
-				...resources.flatMap((resource) => ["--file", resource.localPath]),
-			]);
-		} catch {
-			return null;
-		} finally {
-			await Promise.allSettled(resources.map((resource) => unlink(resource.localPath)));
-		}
-		return resources.length;
 	}
 }

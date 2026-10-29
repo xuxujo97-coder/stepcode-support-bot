@@ -1,4 +1,5 @@
 import { desktopRecordUrl } from "./desktop-feedback.ts";
+import { wishRecordUrl } from "./wish.ts";
 
 // Appended to answers for open-ended dissatisfaction: existing options are given first,
 // then the user can turn remaining needs into a proposal.
@@ -48,6 +49,7 @@ export const COMMAND_HELP = [
 	"/bug：获取问题反馈模板；/bug <描述>：提交问题",
 	"/feature：获取功能建议模板；/feature <描述>：提交功能建议",
 	"/desktop <问题描述>：反馈 Step Code 桌面端（客户端应用）的问题，自动记录到桌面端反馈表",
+	"/wish <愿望描述>：许一个 Step Code 相关的愿望，自动记录到许愿表",
 	"/diagnose <Feedback ID>：根据反馈 ID 拉取会话包，给出初步诊断",
 	"/status：查看服务状态",
 	"在群里 @我 提问，回复在话题里；同一话题内大家共享追问上下文。",
@@ -57,6 +59,12 @@ export const DESKTOP_USAGE = [
 	"用法：/desktop <问题描述>",
 	"用于反馈 Step Code 桌面端（客户端应用）的问题，提交后自动记录到桌面端反馈表，消息里的截图会一并存档。",
 	"描述请写清：现象、做了什么操作、期望的结果。请勿包含密钥或私有代码。",
+].join("\n");
+
+export const WISH_USAGE = [
+	"用法：/wish <愿望描述>",
+	"许一个 Step Code 相关的愿望（想要的功能、想改进的体验），提交后自动记录到许愿表，消息里的截图会一并存档。",
+	"请勿包含密钥或私有代码。",
 ].join("\n");
 
 /** The diagnostics dashboard issues UUID feedback IDs; the shape is fixed before any request is made. */
@@ -74,6 +82,8 @@ export type SupportCommand =
 	| { type: "feature-template" | "bug-template" }
 	| { type: "desktop"; description: string }
 	| { type: "desktop-template" }
+	| { type: "wish"; description: string }
+	| { type: "wish-template" }
 	| { type: "diagnose"; feedbackId: string }
 	| { type: "invalid"; message: string };
 
@@ -119,6 +129,12 @@ export function parseSupportCommand(text: string): SupportCommand | undefined {
 		if (!value) return { type: "desktop-template" };
 		if (value.length > 4000) return { type: "invalid", message: "描述最多 4000 字，请精简后重新发送。" };
 		return { type: "desktop", description: value };
+	}
+	if (name === "/wish") {
+		const value = input.slice(name.length).trim();
+		if (!value) return { type: "wish-template" };
+		if (value.length > 4000) return { type: "invalid", message: "描述最多 4000 字，请精简后重新发送。" };
+		return { type: "wish", description: value };
 	}
 	if (name === "/diagnose") {
 		if (words.length === 0) return { type: "invalid", message: DIAGNOSE_USAGE };
@@ -184,6 +200,13 @@ export interface CommandActions {
 		assigned?: { id: string; name: string };
 		suspectedDuplicate?: { recordId: string; reason: string };
 	}>;
+	/** Record a wish: wisher, description and the message's attachments. */
+	registerWish?(input: {
+		conversationKey: string;
+		messageId: string;
+		description: string;
+		origin: { chatType: "p2p" | "group"; userId: string; chatId: string; threadId?: string };
+	}): Promise<{ recordId: string; attached: number | null }>;
 	/** Pull the feedback session bundle from the diagnostics dashboard and produce a preliminary diagnosis. */
 	diagnose?(feedbackId: string): Promise<string>;
 }
@@ -204,6 +227,8 @@ export async function handleSupportCommand(
 			return BUG_TEMPLATE;
 		case "desktop-template":
 			return DESKTOP_USAGE;
+		case "wish-template":
+			return WISH_USAGE;
 		case "invalid":
 			return command.message;
 		case "help":
@@ -235,6 +260,22 @@ export async function handleSupportCommand(
 				? `\n疑似与已有问题重复${suspectedDuplicate.reason ? `（${suspectedDuplicate.reason}）` : ""}：\n${desktopRecordUrl(suspectedDuplicate.recordId)}\n确认同题后请在表格归并：父记录指向该主记录、状态置「重复」。`
 				: "";
 			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}${assignmentNote}${duplicateNote}`;
+		}
+		case "wish": {
+			if (!actions.registerWish) return "许愿功能当前未启用。";
+			const { recordId, attached } = await actions.registerWish({
+				conversationKey,
+				messageId,
+				description: command.description,
+				origin: context.origin,
+			});
+			const attachmentNote =
+				attached === null
+					? "\n消息里的图片/文件未能自动附加，可打开记录手动上传。"
+					: attached > 0
+						? `\n已附 ${attached} 个图片/文件。`
+						: "";
+			return `愿望已记录，感谢许愿！可点击查看：\n${wishRecordUrl(recordId)}${attachmentNote}`;
 		}
 		case "new":
 			await actions.resetContext(context.memoryKey);

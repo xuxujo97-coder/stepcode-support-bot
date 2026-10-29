@@ -174,6 +174,27 @@ test("desktop reply surfaces a suspected duplicate without auto-merging", async 
 	assert.match(reply, /状态置「重复」/);
 });
 
+test("wish parses, stays read-only when bare, and replies with the record link", async () => {
+	assert.deepEqual(parseSupportCommand("/wish"), { type: "wish-template" });
+	assert.deepEqual(parseSupportCommand("/wish 希望支持深色模式"), {
+		type: "wish",
+		description: "希望支持深色模式",
+	});
+	assert.equal(parseSupportCommand("/wish " + "a".repeat(4001))?.type, "invalid");
+	assert.match(COMMAND_HELP, /\/wish <愿望描述>/);
+	const f = fixture();
+	f.actions.registerWish = async () => ({ recordId: "recW", attached: 1 });
+	const reply = (await handleSupportCommand("/wish 希望支持深色模式", f.context, f.actions)) ?? "";
+	assert.match(reply, /愿望已记录/);
+	assert.match(reply, /record=recW/);
+	assert.match(reply, /已附 1 个图片\/文件/);
+});
+
+test("wish without wiring reports the feature as unavailable", async () => {
+	const f = fixture();
+	assert.match((await handleSupportCommand("/wish 深色模式", f.context, f.actions)) ?? "", /未启用/);
+});
+
 test("desktop without wiring reports the feature as unavailable", async () => {
 	const f = fixture();
 	assert.match((await handleSupportCommand("/desktop 设置页打不开", f.context, f.actions)) ?? "", /未启用/);

@@ -118,6 +118,7 @@ export class SupportHost {
 					registerDesktopFeedback: this.actions.registerDesktopFeedback
 						? (input) => this.actions.registerDesktopFeedback?.(input)
 						: undefined,
+					registerWish: this.actions.registerWish ? (input) => this.actions.registerWish?.(input) : undefined,
 					diagnose: (feedbackId) => this.actions.diagnose?.(feedbackId) ?? Promise.resolve("诊断功能当前未启用。"),
 					// The store commits this staged projection together with the completed reply.
 					saveState: async (_key, value) => {

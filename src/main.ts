@@ -11,6 +11,7 @@ import { LarkCliClient } from "./lark-client.ts";
 import { createSupportModel, SupportAnswerer } from "./model.ts";
 import { SupportStateStore } from "./state-store.ts";
 import { consumeMessages, deliverMessage } from "./transport.ts";
+import { WishAdapter } from "./wish.ts";
 
 async function main(): Promise<void> {
 	process.umask(0o077);
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
 		});
 		const feedback = new FeedbackAdapter(client, store);
 		const desktopFeedback = new DesktopFeedbackAdapter(client, store);
+		const wish = new WishAdapter(client, store);
 		const privateUsers = new Set(config.allowedUsers);
 		const groups = new Set(config.allowedChats);
 		const host = new SupportHost(store, {
@@ -110,6 +112,7 @@ async function main(): Promise<void> {
 				}
 				return result;
 			},
+			registerWish: (input) => wish.register(input),
 			diagnose: (feedbackId) => diagnostics.diagnose(feedbackId),
 		});
 		const controller = new AbortController();
