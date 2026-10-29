@@ -67,6 +67,40 @@ export const WISH_USAGE = [
 	"请勿包含密钥或私有代码。",
 ].join("\n");
 
+export function attachmentNote(attached: number | null): string {
+	return attached === null
+		? "\n消息里的图片/文件未能自动附加，可打开记录手动上传。"
+		: attached > 0
+			? `\n已附 ${attached} 个图片/文件。`
+			: "";
+}
+
+/** Shared reply builder for the /desktop command and the triage desktop route. */
+export function desktopFeedbackReply(
+	result: {
+		recordId: string;
+		attached: number | null;
+		status: string;
+		assigned?: { id: string; name: string };
+		suspectedDuplicate?: { recordId: string; reason: string };
+	},
+	prefix: string,
+): string {
+	const assignmentNote =
+		result.status !== "未处理"
+			? `\n状态：${result.status}${result.assigned ? `｜Dev 负责人：${result.assigned.name}` : "｜Dev 负责人未识别，请在表格手动指派"}`
+			: "";
+	const duplicateNote = result.suspectedDuplicate
+		? `\n疑似与已有问题重复${result.suspectedDuplicate.reason ? `（${result.suspectedDuplicate.reason}）` : ""}：\n${desktopRecordUrl(result.suspectedDuplicate.recordId)}\n确认同题后请在表格归并：父记录指向该主记录、状态置「重复」。`
+		: "";
+	return `${prefix}\n${desktopRecordUrl(result.recordId)}${attachmentNote(result.attached)}${assignmentNote}${duplicateNote}`;
+}
+
+/** Shared reply builder for the /wish command and the triage wish route. */
+export function wishFeedbackReply(result: { recordId: string; attached: number | null }, prefix: string): string {
+	return `${prefix}\n${wishRecordUrl(result.recordId)}${attachmentNote(result.attached)}`;
+}
+
 /** The diagnostics dashboard issues UUID feedback IDs; the shape is fixed before any request is made. */
 export const FEEDBACK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
@@ -239,43 +273,24 @@ export async function handleSupportCommand(
 			return actions.diagnose ? await actions.diagnose(command.feedbackId) : "诊断功能当前未启用。";
 		case "desktop": {
 			if (!actions.registerDesktopFeedback) return "桌面端反馈功能当前未启用。";
-			const { recordId, attached, status, assigned, suspectedDuplicate } = await actions.registerDesktopFeedback({
+			const result = await actions.registerDesktopFeedback({
 				conversationKey,
 				messageId,
 				description: command.description,
 				origin: context.origin,
 				mentions: context.mentions,
 			});
-			const attachmentNote =
-				attached === null
-					? "\n消息里的图片/文件未能自动附加，可打开记录手动上传。"
-					: attached > 0
-						? `\n已附 ${attached} 个图片/文件。`
-						: "";
-			const assignmentNote =
-				status !== "未处理"
-					? `\n状态：${status}${assigned ? `｜Dev 负责人：${assigned.name}` : "｜Dev 负责人未识别，请在表格手动指派"}`
-					: "";
-			const duplicateNote = suspectedDuplicate
-				? `\n疑似与已有问题重复${suspectedDuplicate.reason ? `（${suspectedDuplicate.reason}）` : ""}：\n${desktopRecordUrl(suspectedDuplicate.recordId)}\n确认同题后请在表格归并：父记录指向该主记录、状态置「重复」。`
-				: "";
-			return `已记录桌面端问题，可点击查看：\n${desktopRecordUrl(recordId)}${attachmentNote}${assignmentNote}${duplicateNote}`;
+			return desktopFeedbackReply(result, "已记录桌面端问题，可点击查看：");
 		}
 		case "wish": {
 			if (!actions.registerWish) return "许愿功能当前未启用。";
-			const { recordId, attached } = await actions.registerWish({
+			const result = await actions.registerWish({
 				conversationKey,
 				messageId,
 				description: command.description,
 				origin: context.origin,
 			});
-			const attachmentNote =
-				attached === null
-					? "\n消息里的图片/文件未能自动附加，可打开记录手动上传。"
-					: attached > 0
-						? `\n已附 ${attached} 个图片/文件。`
-						: "";
-			return `愿望已记录，感谢许愿！可点击查看：\n${wishRecordUrl(recordId)}${attachmentNote}`;
+			return wishFeedbackReply(result, "愿望已记录，感谢许愿！可点击查看：");
 		}
 		case "new":
 			await actions.resetContext(context.memoryKey);

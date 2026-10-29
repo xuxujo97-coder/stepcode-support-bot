@@ -10,6 +10,8 @@ export interface SupportConfig {
 	allowedUsers: string[];
 	/** Group chats where every member may @ the bot. */
 	allowedChats: string[];
+	/** Group chats where every message is triaged (classified, routed, replied) without @-ing the bot. */
+	triageChats?: string[];
 	/** The bot's own open_id, used to recognize @mentions of the bot in group messages. */
 	botOpenId: string;
 	stateDir: string;
@@ -42,6 +44,13 @@ export function loadSupportConfig(path: string): SupportConfig {
 		!config.allowedChats.every((chat) => typeof chat === "string" && /^oc_[A-Za-z0-9_-]+$/u.test(chat))
 	)
 		throw new Error("Configure an explicit group chat-ID allowlist");
+	if (
+		config.triageChats !== undefined &&
+		(!Array.isArray(config.triageChats) ||
+			config.triageChats.length > 100 ||
+			!config.triageChats.every((chat) => typeof chat === "string" && /^oc_[A-Za-z0-9_-]+$/u.test(chat)))
+	)
+		throw new Error("Configure triage chat IDs with the oc_ prefix");
 	if (typeof config.botOpenId !== "string" || !/^ou_[A-Za-z0-9_-]+$/u.test(config.botOpenId))
 		throw new Error("Configure the bot open ID");
 	if (config.allowedUsers.includes(config.botOpenId)) throw new Error("The bot cannot be an allowed user");
@@ -87,6 +96,7 @@ export function loadSupportConfig(path: string): SupportConfig {
 		tenantId: String(config.tenantId),
 		allowedUsers: config.allowedUsers,
 		allowedChats: config.allowedChats,
+		...(Array.isArray(config.triageChats) ? { triageChats: config.triageChats } : {}),
 		botOpenId: config.botOpenId,
 		stateDir,
 		repositoryDir: realpathSync(String(config.repositoryDir)),

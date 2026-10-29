@@ -17,6 +17,8 @@ export interface SupportMessage {
 	threadId?: string;
 	/** Other people @mentioned in a group message, never the bot itself. */
 	mentions?: { id: string; name: string }[];
+	/** True for unprompted group messages in a triage chat: route instead of requiring commands. */
+	triage?: boolean;
 	messageId: string;
 	text: string;
 }
@@ -28,6 +30,11 @@ export interface SupportHostActions extends Omit<CommandActions, "saveState"> {
 	redirect?(message: SupportMessage): string | undefined;
 	answer(text: string, context: CommandContext): Promise<string>;
 	reviewFeedback?(text: string): Promise<boolean>;
+	/**
+	 * Route an unprompted triage message. Returns the reply, or undefined/empty for deliberate
+	 * silence (classified as chatter, or classification unavailable).
+	 */
+	triage?(text: string, context: CommandContext): Promise<string | undefined>;
 }
 
 export class SupportHost {
@@ -74,7 +81,28 @@ export class SupportHost {
 				: conversationKey;
 		return this.store.execute(conversationKey, message.messageId, message.text, async (state) => {
 			if (containsSensitiveInput(message.text)) {
+				// An unprompted message gets silence instead of a public credential warning.
+				if (message.triage) return { state, reply: "" };
 				return { state, reply: "消息疑似包含凭据，未提交模型或反馈表。请撤回并脱敏；已暴露的凭据建议轮换。" };
+			}
+			const context: CommandContext = {
+				conversationKey,
+				memoryKey,
+				origin: {
+					chatType: message.chatType,
+					userId: message.userId,
+					chatId: message.chatId,
+					...(message.threadId ? { threadId: message.threadId } : {}),
+				},
+				mentions: message.mentions ?? [],
+				messageId: message.messageId,
+				state,
+			};
+			if (message.triage) {
+				// Triage may invoke the model for classification before routing.
+				if (onModelStart) await onModelStart();
+				const triaged = this.actions.triage ? await this.actions.triage(message.text, context) : undefined;
+				return { state, reply: triaged ?? "" };
 			}
 			const command = parseSupportCommand(message.text);
 			if (
@@ -97,19 +125,6 @@ export class SupportHost {
 				};
 			}
 			let next: CommandState = state;
-			const context: CommandContext = {
-				conversationKey,
-				memoryKey,
-				origin: {
-					chatType: message.chatType,
-					userId: message.userId,
-					chatId: message.chatId,
-					...(message.threadId ? { threadId: message.threadId } : {}),
-				},
-				mentions: message.mentions ?? [],
-				messageId: message.messageId,
-				state,
-			};
 			const reply =
 				(await handleSupportCommand(message.text, context, {
 					resetContext: (key) => this.actions.resetContext(key),

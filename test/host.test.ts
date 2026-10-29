@@ -80,3 +80,48 @@ test("/feedback pointer completes normally and does not block following question
 		assert.deepEqual(f.calls, ["answer:"]);
 	} finally { f.store.close(); }
 });
+
+test("triage messages route through the triage action and silence on undefined", async () => {
+	const f = fixture();
+	try {
+		const seen: { text: string; reply?: string }[] = [];
+		f.actions.triage = async (text) => {
+			seen.push({ text });
+			return text.includes("白屏") ? "自动识别为桌面端问题，已记录" : undefined;
+		};
+		const routed = await f.host.handle({
+			...message,
+			chatType: "group",
+			chatId: "oc_group",
+			threadId: "om_root",
+			triage: true,
+			text: "桌面端白屏了",
+		});
+		assert.equal(routed?.reply, "自动识别为桌面端问题，已记录");
+		assert.equal(routed?.replayed, false);
+		const silent = await f.host.handle({
+			...message,
+			chatType: "group",
+			chatId: "oc_group",
+			threadId: "om_root2",
+			messageId: "2",
+			triage: true,
+			text: "今天天气不错",
+		});
+		assert.equal(silent?.reply, "");
+		// Sensitive unprompted messages stay silent too.
+		const sensitive = await f.host.handle({
+			...message,
+			chatType: "group",
+			chatId: "oc_group",
+			threadId: "om_root3",
+			messageId: "3",
+			triage: true,
+			text: "api_key=secret-value-123",
+		});
+		assert.equal(sensitive?.reply, "");
+		assert.deepEqual(seen, [{ text: "桌面端白屏了" }, { text: "今天天气不错" }]);
+	} finally {
+		f.store.close();
+	}
+});

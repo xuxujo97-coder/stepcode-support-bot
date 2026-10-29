@@ -642,3 +642,48 @@ test("duplicate detection is strict and degrades to no hint", async () => {
 		store.close();
 	}
 });
+
+test("triage chats admit unprompted group messages and capture their mentions", () => {
+	const groupEvent = {
+		...event,
+		chat_type: "group",
+		chat_id: "oc_triage",
+		content: "桌面端又白屏了 @龙永深 处理中",
+		mentions: [{ id: "ou_long", key: "@_user_1", name: "龙永深" }],
+		root_id: "om_root",
+	};
+	assert.equal(decodeMessage(groupEvent, "tenant", BOT), undefined);
+	const triaged = decodeMessage(groupEvent, "tenant", BOT, new Set(["oc_triage"]));
+	assert.equal(triage_info(triaged), true);
+	assert.equal(triaged?.text, "桌面端又白屏了 @龙永深 处理中");
+	assert.deepEqual(triaged?.mentions, [{ id: "ou_long", name: "龙永深" }]);
+	assert.equal(triaged?.threadId, "om_root");
+	// A bot mention in a triage chat keeps the normal addressed flow, never triage.
+	const addressed = decodeMessage(
+		{ ...groupEvent, content: "@助手 /help", mentions: [{ id: BOT, key: "@_user_1", name: "助手" }] },
+		"tenant",
+		BOT,
+		new Set(["oc_triage"]),
+	);
+	assert.equal(addressed?.triage, undefined);
+	assert.equal(addressed?.text, "/help");
+});
+
+test("classifyTriage validates kinds and degrades to silence", async () => {
+	const store = new SupportStateStore(":memory:");
+	let output = '{"type":"desktop_bug"}';
+	const answerer = new SupportAnswerer(async () => output, new SupportKnowledge(root), store, 10);
+	try {
+		assert.equal(await answerer.classifyTriage("桌面端白屏"), "desktop_bug");
+		output = '{"type":"nonsense"}';
+		assert.equal(await answerer.classifyTriage("桌面端白屏"), undefined);
+		output = "not json";
+		assert.equal(await answerer.classifyTriage("桌面端白屏"), undefined);
+	} finally {
+		store.close();
+	}
+});
+
+function triage_info(message: unknown): boolean {
+	return !!(message as { triage?: boolean } | undefined)?.triage;
+}

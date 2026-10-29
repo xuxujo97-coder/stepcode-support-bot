@@ -7,9 +7,15 @@ const MESSAGE_ID = /^om_[A-Za-z0-9_-]+$/u;
 
 /**
  * Accepts user text from private chats and from group chats that @mention the bot.
- * Group chatter that does not address the bot is ignored before reaching the host or model.
+ * Group chatter that does not address the bot is ignored before reaching the host or model —
+ * except in triage chats, where every text message is admitted and marked for routing.
  */
-export function decodeMessage(value: unknown, tenantId: string, botOpenId: string): SupportMessage | undefined {
+export function decodeMessage(
+	value: unknown,
+	tenantId: string,
+	botOpenId: string,
+	triageChats: ReadonlySet<string> = new Set(),
+): SupportMessage | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid event");
 	const event = value as Record<string, unknown>;
 	if (
@@ -32,13 +38,18 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 	let text = event.content;
 	let threadId: string | undefined;
 	let otherMentions: { id: string; name: string }[] = [];
+	let triage = false;
 	if (event.chat_type === "group") {
 		const mentions = Array.isArray(event.mentions) ? event.mentions : [];
 		const botMentions = mentions.filter(
 			(mention): mention is Record<string, unknown> =>
 				!!mention && typeof mention === "object" && (mention as Record<string, unknown>).id === botOpenId,
 		);
-		if (botMentions.length === 0) return undefined;
+		if (botMentions.length === 0) {
+			// Not addressed to the bot: only triage chats may still route the message.
+			if (!triageChats.has(String(event.chat_id))) return undefined;
+			triage = true;
+		}
 		// Rendered content may keep the display name or the placeholder key; remove only the bot's own mention.
 		for (const mention of botMentions) {
 			for (const token of [mention.name, mention.key]) {
@@ -66,9 +77,12 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 		threadId = String(root);
 	}
 	text = text.trim();
-	// A bare @ in a group is a request for help, not an invalid event.
-	if (!text && threadId) text = "/help";
-	if (!text) throw new Error("Invalid event text");
+	// A bare @ in a group is a request for help, not an invalid event; unprompted triage text stays silent.
+	if (!text && threadId && !triage) text = "/help";
+	if (!text) {
+		if (triage) return undefined;
+		throw new Error("Invalid event text");
+	}
 	// Flattened CLI events have no tenant field; this binding is configured for one verified app/profile only.
 	return {
 		tenantId,
@@ -77,6 +91,7 @@ export function decodeMessage(value: unknown, tenantId: string, botOpenId: strin
 		chatId: String(event.chat_id),
 		...(threadId ? { threadId } : {}),
 		...(otherMentions.length ? { mentions: otherMentions } : {}),
+		...(triage ? { triage: true } : {}),
 		messageId: String(event.message_id),
 		text,
 	};
@@ -112,7 +127,8 @@ export async function deliverMessage(
 					}
 				: undefined,
 		);
-		if (!result) return;
+		// An empty reply means the message was processed and deliberately answered with silence.
+		if (!result || !result.reply) return;
 		const claim = store.claimReply(message.messageId);
 		if (claim === "done") return;
 		if (claim === "pending") throw new Error("Uncertain outgoing reply requires reconciliation");
@@ -137,6 +153,7 @@ export async function consumeMessages(
 	signal: AbortSignal,
 	log: (status: string) => void,
 	start?: () => ChildProcessWithoutNullStreams,
+	triageChats: ReadonlySet<string> = new Set(),
 ): Promise<void> {
 	const child = start
 		? start()
@@ -209,7 +226,7 @@ export async function consumeMessages(
 						if (!ready || failure || signal.aborted) return;
 						try {
 							const event: unknown = JSON.parse(line);
-							const message = decodeMessage(event, tenantId, botOpenId);
+							const message = decodeMessage(event, tenantId, botOpenId, triageChats);
 							if (message) await handle(message);
 							else if (
 								event &&

@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { desktopFeedbackReply, wishFeedbackReply } from "./commands.ts";
 import { loadSupportConfig } from "./config.ts";
 import { DesktopFeedbackAdapter } from "./desktop-feedback.ts";
 import { FeedbackDiagnostics } from "./diagnostics.ts";
 import { FeedbackAdapter } from "./feedback.ts";
-import { SupportHost } from "./host.ts";
+import { SupportHost, type SupportHostActions } from "./host.ts";
 import { SupportKnowledge } from "./knowledge.ts";
 import { LarkCliClient } from "./lark-client.ts";
 import { createSupportModel, SupportAnswerer } from "./model.ts";
@@ -76,11 +77,33 @@ async function main(): Promise<void> {
 		const wish = new WishAdapter(client, store);
 		const privateUsers = new Set(config.allowedUsers);
 		const groups = new Set(config.allowedChats);
+		const triageChats = new Set(config.triageChats ?? []);
+		const registerDesktop: NonNullable<SupportHostActions["registerDesktopFeedback"]> = async (input) => {
+			const result = await desktopFeedback.register(input);
+			// The record exists; the duplicate hint is best-effort and must never fail the delivery.
+			try {
+				const active = await desktopFeedback.listActiveReports(result.recordId);
+				const match = await answerer.detectDuplicateReport(input.description, active);
+				if (match) {
+					const existing = active.find((item) => item.recordId === match.recordId);
+					const marker = `｜疑似与 ${match.recordId} 重复：${existing?.description.slice(0, 30) ?? ""}${
+						match.reason ? `（${match.reason}）` : ""
+					}｜PM 确认后归并`;
+					await desktopFeedback.flagSuspectedDuplicate(result.recordId, result.note + marker);
+					return { ...result, suspectedDuplicate: match };
+				}
+			} catch {
+				// No hint beats a failed reply: the record is already safely in the table.
+			}
+			return result;
+		};
 		const host = new SupportHost(store, {
-			// Group: every member of a configured group. Private chat: configured owners only.
+			// Group: every member of a configured group (triage chats included). Private chat: configured owners only.
 			admit: async (message) =>
 				message.tenantId === config.tenantId &&
-				(message.chatType === "group" ? groups.has(message.chatId) : privateUsers.has(message.userId)),
+				(message.chatType === "group"
+					? groups.has(message.chatId) || triageChats.has(message.chatId)
+					: privateUsers.has(message.userId)),
 			redirect: (message) =>
 				message.chatType === "p2p" && !privateUsers.has(message.userId)
 					? "私聊暂未开放。请在 Step Code 支持群里 @Step Code助手 提问，回复会放在话题里。"
@@ -93,27 +116,36 @@ async function main(): Promise<void> {
 			status: async () =>
 				`服务正在处理消息；知识快照 ${knowledge.snapshot}。保留最近相关问题用于追问（30 分钟；群话题内共享，私聊仅本人），重启后清空；Feedback ID 空值需人工补齐。模型与反馈 API 健康以实际请求结果为准。`,
 			registerFeedback: (input) => feedback.registerFeedback(input),
-			registerDesktopFeedback: async (input) => {
-				const result = await desktopFeedback.register(input);
-				// The record exists; the duplicate hint is best-effort and must never fail the delivery.
-				try {
-					const active = await desktopFeedback.listActiveReports(result.recordId);
-					const match = await answerer.detectDuplicateReport(input.description, active);
-					if (match) {
-						const existing = active.find((item) => item.recordId === match.recordId);
-						const marker = `｜疑似与 ${match.recordId} 重复：${existing?.description.slice(0, 30) ?? ""}${
-							match.reason ? `（${match.reason}）` : ""
-						}｜PM 确认后归并`;
-						await desktopFeedback.flagSuspectedDuplicate(result.recordId, result.note + marker);
-						return { ...result, suspectedDuplicate: match };
-					}
-				} catch {
-					// No hint beats a failed reply: the record is already safely in the table.
-				}
-				return result;
-			},
+			registerDesktopFeedback: (input) => registerDesktop(input),
 			registerWish: (input) => wish.register(input),
 			diagnose: (feedbackId) => diagnostics.diagnose(feedbackId),
+			triage: async (text, context) => {
+				const kind = await answerer.classifyTriage(text);
+				if (!kind || kind === "other") return undefined;
+				if (kind === "desktop_bug") {
+					const result = await registerDesktop({
+						conversationKey: context.conversationKey,
+						messageId: context.messageId,
+						description: text,
+						origin: context.origin,
+						mentions: context.mentions,
+					});
+					return desktopFeedbackReply(result, "自动识别为桌面端问题，已记录，可点击查看：");
+				}
+				if (kind === "wish") {
+					const result = await wish.register({
+						conversationKey: context.conversationKey,
+						messageId: context.messageId,
+						description: text,
+						origin: context.origin,
+					});
+					return wishFeedbackReply(result, "自动识别为愿望，已记录，感谢许愿！可点击查看：");
+				}
+				if (kind === "cli_bug") {
+					return "这个问题看起来出在 Step Code CLI/终端侧。团队会定期收集群内反馈；如需立即登记，可在本话题 @我 发送 /bug <描述>，附上 Feedback ID 更佳。";
+				}
+				return answerer.answer(text, context);
+			},
 		});
 		const controller = new AbortController();
 		const stop = () => controller.abort();
@@ -138,6 +170,8 @@ async function main(): Promise<void> {
 				},
 				controller.signal,
 				(status) => console.log(status),
+				undefined,
+				triageChats,
 			);
 		} finally {
 			process.removeListener("SIGTERM", stop);

@@ -15,7 +15,8 @@
   - `/wish <愿望描述>`：许一个 Step Code 相关的愿望，自动写入许愿表（许愿人=发送者、愿望描述原文、消息附件自动存档），PM评估列留给人工。
   - `/diagnose <Feedback ID>`：根据客户端反馈 ID 拉会话包给初步诊断。
   - `/help`、`/new`、`/status`。
-- **安全边界**：疑似含凭据的消息不进模型不进表；模型日预算（默认 100 次/天）；所有外部写入走幂等台账，失败挂起待人工 reconcile，从不自动重试。
+- **话题群自动分流（triageChats）**：配置在 triageChats 里的群，用户**不需要 @机器人 也不需要命令**，每条文字消息会自动分类路由：桌面端缺陷→桌面端反馈表（含附件/指派标注/疑似重复提示，回复确认+链接）；愿望→许愿表；CLI/终端缺陷→回复登记指引（主反馈表走人工同步流程，不自动写入）；使用问题→直接 RAG 回答；闲聊/无关→静默。分类失败或预算耗尽一律静默，绝不打扰。
+- **安全边界**：疑似含凭据的消息不进模型不进表（未主动 @ 机器人的消息静默跳过）；模型日预算（默认 100 次/天）；所有外部写入走幂等台账，失败挂起待人工 reconcile，从不自动重试。
 
 ## 结构
 
@@ -47,7 +48,7 @@ knowledge/            # 官方文档快照（RAG 语料）
 pnpm exec tsx --tsconfig tsconfig.json apps/support-bot/src/main.ts run <config.json>
 ```
 
-配置与密钥在仓库外（`~/.config/stepcode-support-bot/`）：`config.json`（群白名单 allowedChats、私聊白名单 allowedUsers、模型 key 文件路径、日预算）、`model-key`（0600）。模板见 `support-config.example.json`。
+配置与密钥在仓库外（triageChats 为可选字段，配置在 config.json，改动需重启）（`~/.config/stepcode-support-bot/`）：`config.json`（群白名单 allowedChats、私聊白名单 allowedUsers、模型 key 文件路径、日预算）、`model-key`（0600）。模板见 `support-config.example.json`。
 
 依赖 `@step-harness/coding-agent` / `@step-harness/providers`（model.ts 的模型运行时），源自 step-harness monorepo（`apps/support-bot/`），本仓库是抽取快照，独立目录下不能直接 `pnpm install` 构建。
 
